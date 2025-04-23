@@ -1,5 +1,6 @@
 # PrototypeProject
  
-Up to date status: trying to get it to track the sun. The mirror has a 180 degree movement pattern to work with. We have access to real time. The easiest way to do this is have tables with lots of information. Monthly sunrise and sunset is a must to capture seasonal patterns.
-
-There will be four different settings that will be activated by a dial (think if then). South facing is the easiest to capture because it literally just goes to left to right. East and west and more difficult. North, I dont even know if there is much you can do.
+4.23.25
+Check out simulatednotes4.23.25.txt this code works except the motor moves 360 degrees instead of 180 to track the sun
+Currently focusing on southern facing windows because it is easiest
+Most up to date executable file doesnt move the motor but produces output on serial monitor. This problem occurred because I switched frorm Stepper Library to AccelStepper Library which is supposed to be able to handle the motor more precisely.
