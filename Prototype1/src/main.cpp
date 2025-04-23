@@ -1,80 +1,105 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <RTClib.h>
-#include <Stepper.h>
+#include <AccelStepper.h>
 
-// === Forward declaration ===
-void disableCoils();
+// Define motor control pins
+const int IN1 = 8;
+const int IN2 = 9;
+const int IN3 = 10;
+const int IN4 = 11;
 
-// === RTC + Stepper setup ===
+// Disable motor coils to prevent heating
+void disableCoils() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+// Stepper motor setup
+const int stepsPerRevolution = 2048; // 360 degrees
+const int maxDegrees = 180;
+const int totalDaySteps = 96;
+const int maxTotalSteps = (stepsPerRevolution * maxDegrees) / 360;
+const int stepsPerMove = maxTotalSteps / totalDaySteps;
+
+AccelStepper stepper(AccelStepper::HALF4WIRE, IN1, IN3, IN2, IN4);
+
+// RTC setup
 RTC_DS3231 rtc;
 
-const int stepsPerRevolution = 2038;          // 360 °
-const int halfTurnSteps      = stepsPerRevolution / 2; // ≈ 1019 steps ≈ 180 °
-const int stepIncrement      = 21;            // one daylight nudge (adjust to taste)
-const int direction          = -1;            // ‑1 = East→West daylight sweep
+// Sunrise/Sunset times per month (in minutes since midnight)
+const int sunriseTable[12] = {450, 420, 375, 345, 315, 300, 330, 360, 390, 420, 435, 450};
+const int sunsetTable[12]  = {990, 1035, 1095, 1140, 1185, 1200, 1200, 1155, 1110, 1065, 1005, 990};
 
-Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11);
-
-int lastSecond = -1;         // guard so we only trigger once per 15 s slot
-int stepsMoved = 0;          // magnitude moved since sunrise
-bool resetDone = false;      // prevents multiple resets in the same minute
+// Simulation tracking
+unsigned long simStartMillis;
+unsigned long lastStepMillis = 0;
+int stepsMoved = 0;
 
 void setup() {
   Serial.begin(115200);
-  myStepper.setSpeed(5);     // RPM — slow & steady
 
+  // Initialize stepper motor
+  stepper.setMaxSpeed(500);
+  stepper.setSpeed(300); // Constant speed for simulation
+
+  // Initialize RTC
   if (!rtc.begin()) {
-    Serial.println("Couldn't find RTC");
+    Serial.println("RTC not found!");
     while (1);
   }
 
-  // Uncomment ONCE to set RTC to your PC compile time
+  // Uncomment to set RTC to current time
   // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+
+  simStartMillis = millis();
 }
 
 void loop() {
   DateTime now = rtc.now();
-  int second = now.second();
-  int minute = now.minute();
+  int month = now.month() - 1;
 
-  // === DAYLIGHT SWEEP ===
-  // Move every 15 s until we reach ~180 ° (half turn)
-  if ((second % 15 == 0) && (second != lastSecond) && !resetDone &&
-      stepsMoved < halfTurnSteps) {
-    myStepper.step(direction * stepIncrement);   // = ‑21 each nudge
-    stepsMoved += stepIncrement;
-    lastSecond = second;
-    disableCoils();
-  }
+  unsigned long simElapsed = millis() - simStartMillis;
 
-  // === SUNSET RESET ===
-  // Example: trigger at every odd minute (simulate sunset)
-  if ((minute % 2 == 1) && !resetDone) {
-    Serial.println("Resetting mirror to East (opposite direction)");
-
-    // One continuous move the opposite way
-    myStepper.step(-direction * stepsMoved);     // back home
+  // End of simulated day
+  if (simElapsed > 144000) {
+    Serial.println("Simulated sunset. Resetting for next cycle.");
+    stepper.moveTo(0); // Return to starting position
+    while (stepper.distanceToGo() != 0) {
+      stepper.run();
+    }
     disableCoils();
 
-    // House‑keeping for next day
     stepsMoved = 0;
-    resetDone  = true;
-    lastSecond = -1;
+    simStartMillis = millis();
+    return;
   }
 
-  // Arm the next cycle at the next even minute
-  if (minute % 2 == 0) {
-    resetDone = false;
+  // Calculate simulated minutes since midnight
+  float simMinutes = (simElapsed / 144000.0) * 1440.0;
+  int currentMinuteOfDay = (int)simMinutes;
+
+  int sunrise = sunriseTable[month];
+  int sunset = sunsetTable[month];
+
+  // Move during daylight hours
+  if (currentMinuteOfDay >= sunrise && currentMinuteOfDay < sunset) {
+    if (millis() - lastStepMillis >= 1500 && stepsMoved + stepsPerMove <= maxTotalSteps) {
+      stepper.moveTo(stepsMoved + stepsPerMove);
+      while (stepper.distanceToGo() != 0) {
+        stepper.run();
+      }
+      disableCoils();
+
+      stepsMoved += stepsPerMove;
+      lastStepMillis = millis();
+
+      Serial.print("Sim minute: ");
+      Serial.print(currentMinuteOfDay);
+      Serial.print(" | Step moved. Total steps: ");
+      Serial.println(stepsMoved);
+    }
   }
-
-  delay(500);
-}
-
-// === DISABLE STEPPER COILS (prevents heating) ===
-void disableCoils() {
-  digitalWrite(8, LOW);
-  digitalWrite(9, LOW);
-  digitalWrite(10, LOW);
-  digitalWrite(11, LOW);
 }
