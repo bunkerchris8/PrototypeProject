@@ -1,0 +1,74 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <Stepper.h>
+
+// === Forward Declaration ===
+void disableCoils();
+
+// === RTC + Stepper Setup ===
+RTC_DS3231 rtc;
+const int stepsPerRevolution = 2038;
+
+
+Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11);
+
+int lastSecond = -1;
+int stepsMoved = 0;
+bool resetDone = false;
+
+void setup() {
+  Serial.begin(115200);
+  myStepper.setSpeed(5);
+
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+
+  // Uncomment once to set RTC time from PC compile time
+  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+}
+
+void loop() {
+  DateTime now = rtc.now();
+  int second = now.second();
+  int minute = now.minute();
+
+  // Simulate daytime: move every 15 seconds
+  if ((second % 15 == 0) && (second != lastSecond) && !resetDone) {
+    Serial.print("Stepping at second: ");
+    Serial.println(second);
+
+    myStepper.step(21);
+    disableCoils();
+    stepsMoved += 21;
+    lastSecond = second;
+  }
+
+  // Simulate sunset every 2 minutes
+  if (minute % 2 == 1 && !resetDone) {
+    Serial.println("Resetting mirror to East");
+    myStepper.step(-stepsMoved);
+    disableCoils();
+    stepsMoved = 0;
+    resetDone = true;
+    lastSecond = -1;
+  }
+
+  // Allow reset again at next even minute
+  if (minute % 2 == 0) {
+    resetDone = false;
+  }
+
+  delay(500);
+}
+
+// === DISABLE STEPPER COILS TO PREVENT HEATING ===
+void disableCoils() {
+  digitalWrite(8, LOW);
+  digitalWrite(9, LOW);
+  digitalWrite(10, LOW);
+  digitalWrite(11, LOW);
+}
+

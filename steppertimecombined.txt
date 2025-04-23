@@ -1,0 +1,48 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <Stepper.h>
+
+// === Stepper Setup ===
+const int stepsPerRevolution = 2038;
+
+Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11);
+
+// === RTC Setup ===
+RTC_DS3231 rtc;
+int lastTriggerSecond = -1;
+
+void setup() {
+  Serial.begin(115200);
+  while (!Serial);
+
+  // Init stepper motor
+  myStepper.setSpeed(5);
+
+  // Init RTC
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find DS3231");
+    while (1);
+  }
+
+  // Sync to compile time on first upload
+  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // 
+Uncomment to set time once
+}
+
+void loop() {
+  DateTime now = rtc.now();
+  int currentSecond = now.second();
+
+  // Turn every 15 seconds (0, 15, 30, 45)
+  if (currentSecond % 15 == 0 && currentSecond != 
+lastTriggerSecond) {
+    Serial.print("Turning motor at: ");
+    Serial.println(currentSecond);
+    myStepper.step(stepsPerRevolution); // Forward one 
+revolution
+    lastTriggerSecond = currentSecond;
+  }
+
+  delay(1000); // Light loop delay
+}

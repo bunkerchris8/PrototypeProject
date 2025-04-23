@@ -1,0 +1,96 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <Stepper.h>
+
+// === CONFIGURATION ===
+// #define REGION_SOUTH
+#define REGION_NORTHEAST
+
+// === TIME AND MOTOR SETUP ===
+RTC_DS3231 rtc;
+const int stepsPerRevolution = 2038;
+Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11); // Nano pins D8–D11
+
+// === TRACKING STATE ===
+int lastInterval = -1;
+int stepsMoved = 0;
+bool resetDone = false;
+
+// === SUNRISE/SUNSET TABLE (Hour, Minute) ===
+struct SunTimes {
+  int sunriseHour;
+  int sunriseMinute;
+  int sunsetHour;
+  int sunsetMinute;
+};
+
+#ifdef REGION_SOUTH
+SunTimes sunTable[12] = {
+  {7, 15, 18, 00}, {6, 50, 18, 20}, {6, 30, 18, 45}, {6, 00, 19, 15},
+  {5, 45, 19, 30}, {5, 35, 19, 45}, {5, 45, 19, 35}, {6, 00, 19, 15},
+  {6, 15, 18, 45}, {6, 30, 18, 15}, {6, 45, 17, 45}, {7, 00, 17, 30}
+};
+#endif
+
+#ifdef REGION_NORTHEAST
+SunTimes sunTable[12] = {
+  {7, 20, 16, 40}, {6, 45, 17, 30}, {6, 00, 18, 00}, {5, 45, 19, 00},
+  {5, 15, 19, 30}, {5, 00, 20, 30}, {5, 15, 20, 15}, {5, 30, 19, 30},
+  {6, 00, 18, 45}, {6, 30, 17, 45}, {6, 50, 16, 45}, {7, 15, 16, 30}
+};
+#endif
+
+void setup() {
+  Serial.begin(115200);
+  myStepper.setSpeed(5);
+
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+
+  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // <- Uncomment to 
+set once
+}
+
+void loop() {
+  DateTime now = rtc.now();
+  int currentMinutes = now.hour() * 60 + now.minute();
+  int monthIndex = now.month() - 1;
+
+  // Get sunrise and sunset in minutes since midnight
+  int sunrise = sunTable[monthIndex].sunriseHour * 60 + 
+sunTable[monthIndex].sunriseMinute;
+  int sunset  = sunTable[monthIndex].sunsetHour  * 60 + 
+sunTable[monthIndex].sunsetMinute;
+
+  int interval = (currentMinutes - sunrise) / 15;
+
+  // ========== DAYTIME TRACKING ==========
+  if (currentMinutes >= sunrise && currentMinutes < sunset) {
+    resetDone = false;
+
+    if (interval != lastInterval && interval >= 0) {
+      Serial.print("Stepping at interval ");
+      Serial.println(interval);
+
+      myStepper.step(21);  // ≈180° / 12h / 15-min interval = ~21 steps
+      stepsMoved += 21;
+      lastInterval = interval;
+    }
+  }
+
+  // ========== NIGHTTIME RESET ==========
+  else if (currentMinutes >= sunset && !resetDone) {
+    Serial.println("Resetting position to East");
+    myStepper.step(-stepsMoved);
+    stepsMoved = 0;
+    lastInterval = -1;
+    resetDone = true;
+  }
+
+  delay(1000);
+}
+
+

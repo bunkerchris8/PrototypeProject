@@ -1,0 +1,26 @@
+This code works to get the moto working. The problem was it uses the nano 
+pins, it did not convert to GPIO. ChatGPT sucks at helping. 
+
+#include <Arduino.h>
+#include <Stepper.h>
+
+const int stepsPerRevolution = 2038;
+
+//This uses D, not GPIO
+
+Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11);
+
+void setup() {
+  myStepper.setSpeed(5);
+}
+
+void loop() {
+  myStepper.step(stepsPerRevolution);
+  delay(1000);
+  myStepper.step(-stepsPerRevolution);
+  delay(1000);
+}
+
+
+
+_______________________________________________-

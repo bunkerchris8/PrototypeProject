@@ -1,0 +1,92 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <Stepper.h>
+
+void disableCoils();  // Forward declaration
+
+// Stepper Setup
+const int stepsPerRevolution = 2038;
+const int maxDegrees = 180;
+const int totalDaySteps = 96;
+const int stepsPerMove = (stepsPerRevolution * maxDegrees) / (360 * 
+totalDaySteps);
+Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11);
+
+// RTC
+RTC_DS3231 rtc;
+
+// Sunrise/Sunset per month in minutes since midnight
+const int sunriseTable[12] = {450, 420, 375, 345, 315, 300, 330, 360, 390, 
+420, 435, 450}; // 7:30 to 5:00
+const int sunsetTable[12] =  {990, 1035, 1095, 1140, 1185, 1200, 1200, 
+1155, 1110, 1065, 1005, 990}; // 16:30 to 20:00
+
+// Simulation time tracking
+unsigned long simStartMillis;
+unsigned long lastStepMillis = 0;
+int stepsMoved = 0;
+
+void disableCoils() {
+  digitalWrite(8, LOW);
+  digitalWrite(9, LOW);
+  digitalWrite(10, LOW);
+  digitalWrite(11, LOW);
+}
+
+void setup() {
+  Serial.begin(115200);
+  myStepper.setSpeed(5);
+
+  if (!rtc.begin()) {
+    Serial.println("RTC not found!");
+    while (1);
+  }
+
+  // Uncomment to sync time to upload
+  // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+
+  simStartMillis = millis();
+}
+
+void loop() {
+  DateTime now = rtc.now();
+  int month = now.month() - 1; // 0-based index
+
+  // Simulated time in the 2.4 minute (144000 ms) window
+  unsigned long simElapsed = millis() - simStartMillis;
+  if (simElapsed > 144000) {
+    // End of simulated day — reset
+    myStepper.step(-stepsMoved);
+    disableCoils();
+    Serial.println("Simulated sunset. Resetting for next cycle.");
+    stepsMoved = 0;
+    simStartMillis = millis();
+    return;
+  }
+
+  // Map simElapsed to 0–1440 minutes (24h)
+  float simMinutes = (simElapsed / 144000.0) * 1440.0;
+  int currentMinuteOfDay = (int)simMinutes;
+
+  // Sunrise/sunset for current month
+  int sunrise = sunriseTable[month];
+  int sunset = sunsetTable[month];
+
+  // Only move during daylight window
+  if (currentMinuteOfDay >= sunrise && currentMinuteOfDay < sunset) {
+    if (millis() - lastStepMillis >= 1500 && stepsMoved < totalDaySteps * 
+stepsPerMove) {
+      myStepper.step(stepsPerMove);
+      disableCoils();
+      stepsMoved += stepsPerMove;
+      lastStepMillis = millis();
+
+      Serial.print("Sim minute: ");
+      Serial.print(currentMinuteOfDay);
+      Serial.print(" | Step moved. Total: ");
+      Serial.println(stepsMoved);
+    }
+  }
+}
+
